@@ -1,10 +1,15 @@
+import asyncio
 import logging
 import os
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from jobspy import scrape_jobs
+from pydantic import BaseModel
 
-app = FastAPI(title="job-spy-api", version="0.2.0")
+from app.enrich import EnrichRequest as EnrichReq
+from app.enrich import enrich_jobs
+
+app = FastAPI(title="job-spy-api", version="0.3.0")
 logger = logging.getLogger(__name__)
 
 DEFAULT_PROXIES = os.getenv("DEFAULT_PROXIES", "")
@@ -90,3 +95,31 @@ def _parse_company_ids(ids: str | None) -> list[int] | None:
     if not ids:
         return None
     return [int(x.strip()) for x in ids.split(",") if x.strip().isdigit()]
+
+
+class EnrichJobItem(BaseModel):
+    url: str
+    job_id: str = ""
+
+
+class EnrichProxyItem(BaseModel):
+    url: str
+    fingerprint: dict[str, str] = {}
+
+
+class EnrichRequestBody(BaseModel):
+    jobs: list[EnrichJobItem]
+    proxies: list[EnrichProxyItem]
+    delay_min: int = 7
+    delay_max: int = 15
+
+
+@app.post("/jobs/enrich")
+async def enrich(body: EnrichRequestBody):
+    request = EnrichReq(
+        jobs=[j.model_dump() for j in body.jobs],
+        proxies=[p.model_dump() for p in body.proxies],
+        delay_min=body.delay_min,
+        delay_max=body.delay_max,
+    )
+    return await enrich_jobs(request)
