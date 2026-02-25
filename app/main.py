@@ -1,15 +1,25 @@
-import asyncio
 import logging
 import os
+import tomllib
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query
 from jobspy import scrape_jobs
 from pydantic import BaseModel
 
 from app.enrich import EnrichRequest as EnrichReq
 from app.enrich import enrich_jobs
 
-app = FastAPI(title="job-spy-api", version="0.3.0")
+
+def _read_version() -> str:
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    if pyproject.exists():
+        with open(pyproject, "rb") as f:
+            return tomllib.load(f)["project"]["version"]
+    return "0.0.0"
+
+
+app = FastAPI(title="job-spy-api", version=_read_version())
 logger = logging.getLogger(__name__)
 
 DEFAULT_PROXIES = os.getenv("DEFAULT_PROXIES", "")
@@ -84,19 +94,6 @@ def search_jobs(
     return jobs.to_dict(orient="records")
 
 
-def _parse_proxies(proxies: str | None) -> list[str] | None:
-    raw = proxies or DEFAULT_PROXIES
-    if not raw:
-        return None
-    return [p.removeprefix("http://").removeprefix("https://") for p in raw.split(",")]
-
-
-def _parse_company_ids(ids: str | None) -> list[int] | None:
-    if not ids:
-        return None
-    return [int(x.strip()) for x in ids.split(",") if x.strip().isdigit()]
-
-
 class EnrichJobItem(BaseModel):
     url: str
     job_id: str = ""
@@ -123,3 +120,16 @@ async def enrich(body: EnrichRequestBody):
         delay_max=body.delay_max,
     )
     return await enrich_jobs(request)
+
+
+def _parse_proxies(proxies: str | None) -> list[str] | None:
+    raw = proxies or DEFAULT_PROXIES
+    if not raw:
+        return None
+    return [p.removeprefix("http://").removeprefix("https://") for p in raw.split(",")]
+
+
+def _parse_company_ids(ids: str | None) -> list[int] | None:
+    if not ids:
+        return None
+    return [int(x.strip()) for x in ids.split(",") if x.strip().isdigit()]
