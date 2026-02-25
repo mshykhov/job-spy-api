@@ -213,6 +213,31 @@ def _parse_job_page(html: str) -> dict | None:
         if match:
             apply_url = match.group(0)
 
+    # Top card
+    company_url = None
+    company_link = soup.find("a", class_="topcard__org-name-link")
+    if company_link and company_link.get("href"):
+        company_url = company_link["href"].split("?")[0]
+
+    company_logo = None
+    top_section = soup.find("section", class_="top-card-layout")
+    if top_section:
+        for img in top_section.find_all("img"):
+            src = img.get("data-delayed-url", img.get("src", ""))
+            if src and "company-logo" in src:
+                company_logo = src
+                break
+
+    posted_time = None
+    posted_el = soup.find("span", class_="posted-time-ago__text")
+    if posted_el:
+        posted_time = posted_el.get_text(strip=True)
+
+    # Meta tags
+    def _meta(name: str) -> str | None:
+        tag = soup.find("meta", attrs={"name": name}) or soup.find("meta", attrs={"property": name})
+        return tag["content"] if tag and tag.get("content") else None
+
     return {
         "description": description,
         "description_html": description_html,
@@ -223,6 +248,13 @@ def _parse_job_page(html: str) -> dict | None:
         "applicants": applicants,
         "salary": salary,
         "apply_url": apply_url,
+        "company_url": company_url,
+        "company_logo": company_logo,
+        "posted_time": posted_time,
+        "company_id": _meta("companyId"),
+        "industry_ids": _meta("industryIds"),
+        "title_id": _meta("titleId"),
+        "canonical_url": _meta("lnkd:url"),
     }
 
 
