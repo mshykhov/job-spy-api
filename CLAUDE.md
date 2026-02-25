@@ -1,4 +1,4 @@
-# job-hunter-scraper
+# job-spy-api
 
 **TL;DR:** FastAPI wrapper around python-jobspy for [Job Hunter](https://github.com/mshykhov/job-hunter). Scrapes job vacancies from LinkedIn, Indeed, Google Jobs, and other platforms.
 
@@ -44,7 +44,7 @@ n8n → POST /jobs/ingest (Kotlin API) → persist
 ## Structure
 
 ```
-job-hunter-scraper/
+job-spy-api/
 ├── app/
 │   ├── __init__.py
 │   └── main.py              # FastAPI application
@@ -64,4 +64,4 @@ job-hunter-scraper/
 - **NaN handling**: pandas NaN values converted to None for valid JSON
 - **Error handling**: ValueError → 400, other exceptions → 500 with logging
 - **LinkedIn**: Requires proxies. Rate-limited. Max ~1000 results per query. `linkedin_fetch_description=true` for full descriptions (O(n) extra requests)
-- **Release**: Push `v*` tag → GitHub Actions builds Docker image → pushes to `ghcr.io/mshykhov/job-hunter-scraper`
+- **Release**: Push `v*` tag → GitHub Actions builds Docker image → pushes to `ghcr.io/mshykhov/job-spy-api`
