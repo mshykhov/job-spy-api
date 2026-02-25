@@ -214,10 +214,18 @@ def _parse_job_page(html: str) -> dict | None:
             apply_url = match.group(0)
 
     # Top card
+    company_name = None
     company_url = None
     company_link = soup.find("a", class_="topcard__org-name-link")
-    if company_link and company_link.get("href"):
-        company_url = company_link["href"].split("?")[0]
+    if company_link:
+        company_name = company_link.get_text(strip=True)
+        if company_link.get("href"):
+            company_url = company_link["href"].split("?")[0]
+
+    location = None
+    location_el = soup.find("span", class_="topcard__flavor--bullet")
+    if location_el:
+        location = location_el.get_text(strip=True)
 
     company_logo = None
     top_section = soup.find("section", class_="top-card-layout")
@@ -241,6 +249,8 @@ def _parse_job_page(html: str) -> dict | None:
     return {
         "description": description,
         "description_html": description_html,
+        "company_name": company_name,
+        "location": location,
         "seniority": criteria.get("seniority_level"),
         "employment_type": criteria.get("employment_type"),
         "job_function": criteria.get("job_function"),
