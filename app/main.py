@@ -40,7 +40,7 @@ def search_jobs(
     job_type: str | None = Query(None, description="fulltime, parttime, internship, contract"),
     proxies: str | None = Query(None, description="Comma-separated: user:pass@host:port"),
     is_remote: bool = Query(False),
-    results_wanted: int = Query(15, ge=1, le=200),
+    results_wanted: int = Query(15, ge=1, le=1000),
     easy_apply: bool | None = Query(None, description="Filter for jobs hosted on the job board site"),
     description_format: str = Query("markdown", description="markdown or html"),
     offset: int | None = Query(None, ge=0, description="Start search from offset (e.g. 25)"),
