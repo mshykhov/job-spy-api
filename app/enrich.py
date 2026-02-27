@@ -49,15 +49,25 @@ class EnrichResult:
 class EnrichStats:
     total: int = 0
     success: int = 0
-    no_data: int = 0
-    not_found: int = 0
-    timeout: int = 0
-    error: int = 0
-    skipped: int = 0
+    failed: dict[str, int] = field(default_factory=dict)
+    proxies_total: int = 0
     proxies_alive: int = 0
-    proxies_dead: int = 0
     proxy_deaths: dict[str, int] = field(default_factory=dict)
     duration_seconds: float = 0
+
+    def to_dict(self) -> dict:
+        d: dict = {
+            "total": self.total,
+            "success": self.success,
+        }
+        if self.failed:
+            d["failed"] = self.failed
+        proxies: dict = {"alive": self.proxies_alive}
+        if self.proxy_deaths:
+            proxies["dead"] = self.proxy_deaths
+        d["proxies"] = proxies
+        d["duration_seconds"] = self.duration_seconds
+        return d
 
 
 async def enrich_jobs(request: EnrichRequest) -> dict:
@@ -136,7 +146,7 @@ async def enrich_jobs(request: EnrichRequest) -> dict:
 
     return {
         "results": [_result_to_dict(r) for r in results],
-        "stats": stats.__dict__,
+        "stats": stats.to_dict(),
     }
 
 
@@ -330,28 +340,24 @@ def _compute_stats(
     for reason in dead_proxies.values():
         death_counts[reason] = death_counts.get(reason, 0) + 1
 
-    stats = EnrichStats(
-        total=len(results),
-        duration_seconds=round(duration, 1),
-        proxies_alive=total_proxies - len(dead_proxies),
-        proxies_dead=len(dead_proxies),
-        proxy_deaths=death_counts,
-    )
+    failed: dict[str, int] = {}
+    success = 0
     for r in results:
-        match r.status:
-            case "success":
-                stats.success += 1
-            case "no_data":
-                stats.no_data += 1
-            case "not_found":
-                stats.not_found += 1
-            case "timeout":
-                stats.timeout += 1
-            case "error":
-                stats.error += 1
-            case "skipped":
-                stats.skipped += 1
-    return stats
+        if r.status == "success":
+            success += 1
+        else:
+            reason = r.error or r.status
+            failed[reason] = failed.get(reason, 0) + 1
+
+    return EnrichStats(
+        total=len(results),
+        success=success,
+        failed=failed,
+        proxies_total=total_proxies,
+        proxies_alive=total_proxies - len(dead_proxies),
+        proxy_deaths=death_counts,
+        duration_seconds=round(duration, 1),
+    )
 
 
 def _result_to_dict(r: EnrichResult) -> dict:
@@ -370,5 +376,5 @@ def _empty_response(jobs: list[dict], error: str) -> dict:
     ]
     return {
         "results": results,
-        "stats": EnrichStats(total=len(jobs), skipped=len(jobs)).__dict__,
+        "stats": EnrichStats(total=len(jobs), failed={error: len(jobs)}).to_dict(),
     }
