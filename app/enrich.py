@@ -56,6 +56,7 @@ class EnrichStats:
     skipped: int = 0
     proxies_alive: int = 0
     proxies_dead: int = 0
+    proxy_deaths: dict[str, int] = field(default_factory=dict)
     duration_seconds: float = 0
 
 
@@ -73,7 +74,7 @@ async def enrich_jobs(request: EnrichRequest) -> dict:
     results: list[EnrichResult] = []
     results_lock = asyncio.Lock()
     alive_count = asyncio.Semaphore(len(proxies))
-    dead_proxies: set[int] = set()
+    dead_proxies: dict[int, str] = {}
 
     async def worker(proxy_idx: int, proxy: ProxyConfig):
         async with httpx.AsyncClient(
@@ -106,7 +107,7 @@ async def enrich_jobs(request: EnrichRequest) -> dict:
                 except _ProxyDeadError as e:
                     logger.warning("Proxy %d dead: %s. Re-queuing job %s", proxy_idx, e, job_id)
                     await queue.put(job)
-                    dead_proxies.add(proxy_idx)
+                    dead_proxies[proxy_idx] = e.reason
                     alive_count.acquire()
                     return
 
@@ -140,7 +141,10 @@ async def enrich_jobs(request: EnrichRequest) -> dict:
 
 
 class _ProxyDeadError(Exception):
-    pass
+    def __init__(self, reason: str, detail: str = ""):
+        self.reason = reason
+        self.detail = detail
+        super().__init__(f"{reason}: {detail}" if detail else reason)
 
 
 async def _fetch_job_detail(
@@ -157,17 +161,17 @@ async def _fetch_job_detail(
     except httpx.TimeoutException:
         return EnrichResult(job_id=job_id, url=url, status="timeout", error="Request timed out")
     except httpx.ProxyError as e:
-        raise _ProxyDeadError(f"Proxy error: {e}")
+        raise _ProxyDeadError("proxy_error", str(e))
     except httpx.ConnectError as e:
-        raise _ProxyDeadError(f"Connection error: {e}")
+        raise _ProxyDeadError("connect_error", str(e))
 
     if response.status_code == 429:
-        raise _ProxyDeadError("429 Too Many Requests")
+        raise _ProxyDeadError("rate_limited")
 
     if response.status_code in (301, 302, 303, 307, 308):
         location = response.headers.get("location", "")
         if "signup" in location or "login" in location or "authwall" in location:
-            raise _ProxyDeadError(f"Auth wall redirect: {location}")
+            raise _ProxyDeadError("auth_wall", location)
 
     if response.status_code == 404:
         return EnrichResult(job_id=job_id, url=url, status="not_found", error="Job not found")
@@ -319,14 +323,19 @@ def _build_headers(fingerprint: dict[str, str]) -> dict[str, str]:
 def _compute_stats(
     results: list[EnrichResult],
     total_proxies: int,
-    dead_proxies: set[int],
+    dead_proxies: dict[int, str],
     duration: float,
 ) -> EnrichStats:
+    death_counts: dict[str, int] = {}
+    for reason in dead_proxies.values():
+        death_counts[reason] = death_counts.get(reason, 0) + 1
+
     stats = EnrichStats(
         total=len(results),
         duration_seconds=round(duration, 1),
         proxies_alive=total_proxies - len(dead_proxies),
         proxies_dead=len(dead_proxies),
+        proxy_deaths=death_counts,
     )
     for r in results:
         match r.status:
