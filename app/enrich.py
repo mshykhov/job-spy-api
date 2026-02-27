@@ -27,6 +27,11 @@ class ProxyConfig:
         raw = self.url.removeprefix("http://").removeprefix("https://")
         return f"http://{raw}"
 
+    @property
+    def host(self) -> str:
+        raw = self.url.removeprefix("http://").removeprefix("https://")
+        return raw.split("@")[-1] if "@" in raw else raw
+
 
 @dataclass
 class EnrichRequest:
@@ -52,7 +57,7 @@ class EnrichStats:
     failed: dict[str, int] = field(default_factory=dict)
     proxies_total: int = 0
     proxies_alive: int = 0
-    proxy_deaths: dict[str, int] = field(default_factory=dict)
+    proxy_deaths: dict[str, str] = field(default_factory=dict)
     duration_seconds: float = 0
 
     def to_dict(self) -> dict:
@@ -84,7 +89,7 @@ async def enrich_jobs(request: EnrichRequest) -> dict:
     results: list[EnrichResult] = []
     results_lock = asyncio.Lock()
     alive_count = asyncio.Semaphore(len(proxies))
-    dead_proxies: dict[int, str] = {}
+    dead_proxies: dict[str, str] = {}
 
     async def worker(proxy_idx: int, proxy: ProxyConfig):
         async with httpx.AsyncClient(
@@ -115,9 +120,9 @@ async def enrich_jobs(request: EnrichRequest) -> dict:
                         await asyncio.sleep(2)
 
                 except _ProxyDeadError as e:
-                    logger.warning("Proxy %d dead: %s. Re-queuing job %s", proxy_idx, e, job_id)
+                    logger.warning("Proxy %s dead: %s. Re-queuing job %s", proxy.host, e, job_id)
                     await queue.put(job)
-                    dead_proxies[proxy_idx] = e.reason
+                    dead_proxies[proxy.host] = e.reason
                     alive_count.acquire()
                     return
 
@@ -333,13 +338,9 @@ def _build_headers(fingerprint: dict[str, str]) -> dict[str, str]:
 def _compute_stats(
     results: list[EnrichResult],
     total_proxies: int,
-    dead_proxies: dict[int, str],
+    dead_proxies: dict[str, str],
     duration: float,
 ) -> EnrichStats:
-    death_counts: dict[str, int] = {}
-    for reason in dead_proxies.values():
-        death_counts[reason] = death_counts.get(reason, 0) + 1
-
     failed: dict[str, int] = {}
     success = 0
     for r in results:
@@ -355,7 +356,7 @@ def _compute_stats(
         failed=failed,
         proxies_total=total_proxies,
         proxies_alive=total_proxies - len(dead_proxies),
-        proxy_deaths=death_counts,
+        proxy_deaths=dead_proxies,
         duration_seconds=round(duration, 1),
     )
 
