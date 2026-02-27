@@ -4,6 +4,7 @@ import random
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 
 import httpx
 from bs4 import BeautifulSoup
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 LINKEDIN_JOB_URL = "https://www.linkedin.com/jobs/view/{job_id}"
 REQUEST_TIMEOUT = 30
+_POSTED_TIME_RE = re.compile(r"Posted\s+(\d{1,2}:\d{2}:\d{2} [AP]M)")
 
 
 @dataclass
@@ -88,8 +90,10 @@ async def enrich_jobs(request: EnrichRequest) -> dict:
                 job_id = job.get("job_id", "")
                 url = job.get("url", LINKEDIN_JOB_URL.format(job_id=job_id))
 
+                date_posted = job.get("date_posted", "")
+
                 try:
-                    result = await _fetch_job_detail(client, url, job_id, proxy.fingerprint)
+                    result = await _fetch_job_detail(client, url, job_id, proxy.fingerprint, date_posted)
                     async with results_lock:
                         results.append(result)
 
@@ -144,6 +148,7 @@ async def _fetch_job_detail(
     url: str,
     job_id: str,
     fingerprint: dict[str, str],
+    date_posted: str = "",
 ) -> EnrichResult:
     headers = _build_headers(fingerprint)
 
@@ -173,6 +178,9 @@ async def _fetch_job_detail(
     data = _parse_job_page(response.text)
     if not data:
         return EnrichResult(job_id=job_id, url=url, status="no_data", error="Could not parse job page")
+
+    posted_time_exact = data.pop("posted_time_exact", None)
+    data["published_at"] = _build_published_at(date_posted, posted_time_exact)
 
     return EnrichResult(job_id=job_id, url=url, status="success", data=data)
 
@@ -246,6 +254,12 @@ def _parse_job_page(html: str) -> dict | None:
         tag = soup.find("meta", attrs={"name": name}) or soup.find("meta", attrs={"property": name})
         return tag["content"] if tag and tag.get("content") else None
 
+    posted_time_exact = None
+    meta_desc = _meta("description") or ""
+    time_match = _POSTED_TIME_RE.search(meta_desc)
+    if time_match:
+        posted_time_exact = time_match.group(1)
+
     return {
         "description": description,
         "description_html": description_html,
@@ -261,11 +275,27 @@ def _parse_job_page(html: str) -> dict | None:
         "company_url": company_url,
         "company_logo": company_logo,
         "posted_time": posted_time,
+        "posted_time_exact": posted_time_exact,
         "company_id": _meta("companyId"),
         "industry_ids": _meta("industryIds"),
         "title_id": _meta("titleId"),
         "canonical_url": _meta("lnkd:url"),
     }
+
+
+def _build_published_at(date_posted: str, time_exact: str | None) -> str | None:
+    if not date_posted or not time_exact:
+        return None
+    try:
+        date_part = datetime.strptime(date_posted[:10], "%Y-%m-%d")
+        time_part = datetime.strptime(time_exact.strip(), "%I:%M:%S %p")
+        combined = date_part.replace(
+            hour=time_part.hour, minute=time_part.minute, second=time_part.second
+        )
+        return combined.strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (ValueError, AttributeError):
+        logger.debug("Could not build published_at from date_posted=%r, time_exact=%r", date_posted, time_exact)
+        return None
 
 
 def _build_headers(fingerprint: dict[str, str]) -> dict[str, str]:

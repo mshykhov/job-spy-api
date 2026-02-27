@@ -22,14 +22,18 @@
 
 ```
 FastAPI (app/main.py)
-  └── python-jobspy (scrape_jobs)
-        ├── LinkedIn scraper
-        ├── Indeed scraper
-        ├── Google Jobs scraper
-        └── ... other platforms
+  ├── GET /jobs → python-jobspy (scrape_jobs)
+  │     ├── LinkedIn scraper
+  │     ├── Indeed scraper
+  │     ├── Google Jobs scraper
+  │     └── ... other platforms
+  └── POST /jobs/enrich → app/enrich.py
+        └── Parallel proxy worker pool for LinkedIn detail pages
 ```
 
-Single endpoint: `GET /jobs` — accepts search params, returns JSON array of job postings.
+Two endpoints:
+- `GET /jobs` — search via python-jobspy, returns JSON array of job postings
+- `POST /jobs/enrich` — parallel enrichment of LinkedIn job detail pages (description, seniority, published_at, etc.)
 
 ### Integration with Job Hunter
 
@@ -47,7 +51,8 @@ n8n → POST /jobs/ingest (Kotlin API) → persist
 job-spy-api/
 ├── app/
 │   ├── __init__.py
-│   └── main.py              # FastAPI application
+│   ├── main.py              # FastAPI application
+│   └── enrich.py            # LinkedIn enrichment worker pool
 ├── .github/workflows/
 │   └── release.yml           # Build & push Docker image on tag
 ├── Dockerfile

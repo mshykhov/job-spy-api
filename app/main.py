@@ -97,6 +97,7 @@ def search_jobs(
 class EnrichJobItem(BaseModel):
     url: str
     job_id: str = ""
+    date_posted: str = ""
 
 
 class EnrichProxyItem(BaseModel):
